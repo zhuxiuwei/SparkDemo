@@ -4,6 +4,12 @@ import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.{SQLContext, SparkSession}
 import org.apache.spark.{SparkConf, SparkContext}
 
+/**
+ * 这个class必须定义在DataFrameTest外，否则会报错："No TypeTag available for Student"
+ * case不能省。 否则val student = Student("Jack", 26, 8, Array(100,88,99)) 编译不过。
+ */
+case class Student(name: String, age: Long, grade: Int, scores: Array[Int])
+
 object DataFrameTest {
 
   def main(args: Array[String]) = {
@@ -13,12 +19,13 @@ object DataFrameTest {
 //    val sqlCtx = new SQLContext(sc) //过时了
     val session = SparkSession
       .builder()
-//      .enableHiveSupport()
+//      .enableHiveSupport()  //需要引入额外依赖
       .getOrCreate()
 
     /* tests */
 //    schemaTest(session)
-    simpleDfAPITest(session)
+//    simpleDfAPITest(session)
+    aggregateTest(session)
   }
 
   /**
@@ -76,7 +83,7 @@ object DataFrameTest {
   }
 
   /**
-   * high performance spark: Simple DataFrame transformations and SQL expressions （p7）
+   * <high performance spark>: Simple DataFrame transformations and SQL expressions （p37）
    */
   def simpleDfAPITest(session: SparkSession): Unit ={
     val student = Student("Jack", 26, 8, Array(100,88,99))
@@ -95,8 +102,8 @@ object DataFrameTest {
 
     /** select usage */
     import org.apache.spark.sql.functions._   //要加上，否则'lit'编译不过
-    val df2 = df.select(df("name"), (df("age") + df("grade")).as("intSum"))
-      .withColumn("c2",  lit(1));
+    val df2 = df.select(df("name"), (df("age") + df("grade")).as("intSum")) //select 2列
+      .withColumn("c2",  lit(1)); //lit不能省
     df2.show()
 //    +----+------+---+
 //    |name|intSum| c2|
@@ -122,11 +129,44 @@ object DataFrameTest {
     val df4 = df3
       .select(df3("name"), (when((df3("name") === "Jack"), "Good Student").when((df3("name") === "Tom"), "Bad Student").otherwise("Normal Student").as("StudentType")))
     df4.show()
+//    +----+------------+
+//    |name| StudentType|
+//    +----+------------+
+//    |Jack|Good Student|
+//    |Jack|Good Student|
+//    | Tom| Bad Student|
+//    | Tom| Bad Student|
+//    +----+------------+
   }
 
   /**
-   * 这个class必须定义在DataFrameTest外，否则会报错："No TypeTag available for Student"
-   * case不能省。 否则val student = Student("Jack", 26, 8, Array(100,88,99)) 编译不过。
+   * <high performance spark>: groupBy and aggregation test
    */
-  case class Student(name: String, age: Long, grade: Int, scores: Array[Int])
+  def aggregateTest(session: SparkSession): Unit ={
+    val student = Student("Jack", 26, 8, Array(100,88,99))
+    val student2 = Student("Tom", 24, 6, Array(72,85,66))
+    val student3 = Student("Harry", 26, 2, Array(72,85,66))
+    val df = session.createDataFrame(Seq(student, student2, student3))
+
+    val maxDf = df.groupBy(df("age")).max("grade")
+    maxDf.show()
+    //    +---+----------+
+    //    |age|max(grade)|
+    //    +---+----------+
+    //    | 26|         8|
+    //    | 24|         6|
+    //    +---+----------+
+    val describeDf = df.describe() //describe方法：全局统计
+    describeDf.show()
+    //    +-------+-----+------------------+------------------+
+    //    |summary| name|               age|             grade|
+    //    +-------+-----+------------------+------------------+
+    //    |  count|    3|                 3|                 3|
+    //    |   mean| null|25.333333333333332| 5.333333333333333|
+    //    | stddev| null|1.1547005383792515|3.0550504633038935|
+    //    |    min|Harry|                24|                 2|
+    //    |    max|  Tom|                26|                 8|
+    //    +-------+-----+------------------+------------------+
+
+  }
 }
